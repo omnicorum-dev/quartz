@@ -6,10 +6,10 @@
 #define QUARTZ_H
 
 #define MINIAUDIO_IMPLEMENTATION
-#include "miniaudio.h"
-#include "base-layer/base.h"
+#include <miniaudio.h>
+#include <base.h>
 #define STB_VORBIS_IMPLEMENTATION
-#include "stb_vorbis.c"
+#include <stb_vorbis.c>
 
 using namespace omni;
 
