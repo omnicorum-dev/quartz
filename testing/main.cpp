@@ -1,7 +1,7 @@
 #include <iostream>
 #include <thread>
 
-#include "quartz.h"
+#include "../quartz.h"
 
 int main() {
     Quartz quartz;
@@ -9,10 +9,10 @@ int main() {
     quartz.init(48000, 2);
 
     Sound ctt;
-    ctt.load("../ctt.ogg");
+    ctt.load("../assets/ctt.ogg");
 
     Music htf;
-    htf.load("../htf.ogg");
+    htf.load("../assets/htf.ogg");
 
     Mixer bus;
 
