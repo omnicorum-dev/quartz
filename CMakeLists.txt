@@ -3,9 +3,18 @@ project(Quartz)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(app testing/main.cpp)
-target_include_directories(app PUBLIC vendor/base-layer vendor ./)
+add_subdirectory(vendor/base-layer)
 
-add_library(Quartz)
-target_sources(Quartz PRIVATE quartz.cpp)
-target_include_directories(Quartz PUBLIC vendor/base-layer vendor ./)
+add_executable(QuartzTesting testing/main.cpp)
+target_include_directories(QuartzTesting PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(QuartzTesting PUBLIC BaseLayer)
+
+add_library(Quartz INTERFACE)
+target_include_directories(Quartz INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(Quartz INTERFACE BaseLayer)

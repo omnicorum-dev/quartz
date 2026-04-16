@@ -1,7 +1,7 @@
 #include <iostream>
 #include <thread>
 
-#include "../quartz.h"
+#include <quartz.h>
 
 int main() {
     Quartz quartz;

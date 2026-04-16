@@ -1,3 +1,3 @@
-[submodule "base-layer"]
-	path = base-layer
+[submodule "vendor/base-layer"]
+	path = vendor/base-layer
 	url = https://github.com/omnicorum-dev/base-layer

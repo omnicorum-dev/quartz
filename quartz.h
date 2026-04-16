@@ -9,7 +9,7 @@
 #include <miniaudio.h>
 #include <base.h>
 #define STB_VORBIS_IMPLEMENTATION
-#include <vendor/stb_vorbis.c>
+#include <stb_vorbis.c>
 
 using namespace omni;
 
