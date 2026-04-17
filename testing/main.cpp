@@ -25,9 +25,18 @@ int main() {
     bus.addInput(&ctt);
 
     quartz.master().print();
+    println("");
 
-    printf("Press Enter to quit...");
-    getchar();
+    while (true) {
+        char c = getchar();
+        if (c == 'q') {
+            break;
+        } else if (c == 's') {
+            ctt.playStop();
+        } else if (c == 'm') {
+            htf.playPause();
+        }
+    }
 
     return 0;
 }

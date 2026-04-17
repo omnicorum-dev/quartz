@@ -106,10 +106,11 @@ private:
     float* audio = nullptr;
 
     int pos = 0;
-    bool playing = true;
-    bool loop = false;
+    bool playing = false;
 
 public:
+    bool loop = false;
+
     ~Sound() {
         delete[] audio;
     }
@@ -146,6 +147,20 @@ public:
         return true;
     }
 
+    void play()    { playing = true;  }
+    void pause()   { playing = false; }
+    void stop()    { playing = false; pos = 0; }
+    void restart() { pos = 0; }
+
+    void playPause() {
+        if (playing) { pause(); }
+        else         { play();  }
+    }
+    void playStop() {
+        if (playing) { stop(); }
+        else         { play();  }
+    }
+
     void getSamples(float* output, int numFrames, int numChannels) override {
         if (!playing || !audio) return;
 
@@ -167,13 +182,14 @@ class Music : public AudioNode {
 private:
     stb_vorbis* vorbis = nullptr;
     int channels = 0;
-    bool loop = true;
-    bool playing = true;
+    bool playing = false;
 
     static constexpr int MAX_FRAMES = 1024;
     static constexpr int MAX_CH = 2;
 
 public:
+    bool loop = false;
+
     ~Music() {
         if (vorbis) stb_vorbis_close(vorbis);
     }
@@ -194,6 +210,26 @@ public:
 
         channels = stb_vorbis_get_info(vorbis).channels;
         return true;
+    }
+
+    void play()  { playing = true; }
+    void pause() { playing = false; }
+
+    void stop() {
+        if (vorbis) stb_vorbis_seek_start(vorbis);
+        playing = false;
+    }
+    void restart() const {
+        if (vorbis) stb_vorbis_seek_start(vorbis);
+    }
+
+    void playPause() {
+        if (playing) { pause(); }
+        else         { play();  }
+    }
+    void playStop() {
+        if (playing) { stop(); }
+        else         { play();  }
     }
 
     void getSamples(float* output, int numFrames, int numChannels) override {
