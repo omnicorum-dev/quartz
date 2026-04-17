@@ -25,7 +25,6 @@ int main() {
     bus.addInput(&ctt);
 
     quartz.master().print();
-    println("");
 
     while (true) {
         char c = getchar();

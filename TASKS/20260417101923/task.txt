@@ -1,7 +1,9 @@
 20260417101923
 add play, pause, and stop options to sound and music
 42
-open
+closed
 feature,sound,music
 
+
 add play, pause, and stop options to sound and music
+

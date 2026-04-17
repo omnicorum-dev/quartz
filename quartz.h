@@ -46,6 +46,9 @@ private:
     std::vector<Connection> inputs;
     float masterGain = 1.0f;
 
+    std::string name;
+    mutable std::string cachedName;
+
 public:
     void addInput(AudioNode* node, float gain = 1.0f) {
         inputs.push_back({ node, gain });
@@ -56,12 +59,17 @@ public:
     }
 
     const char* getName() const override {
-        return "Mixer";
+        cachedName = "Mixer: " + name;
+        return cachedName.c_str();
+    }
+
+    void setName(const std::string& n) {
+        name = n;
     }
 
     void print(int depth = 0) const override {
         for (int i = 0; i < depth; ++i) std::cout << "  ";
-        std::cout << "Mixer (inputs=" << inputs.size() << ")\n";
+        std::cout << getName() << " (" << inputs.size() << " inputs)\n";
 
         for (const auto& in : inputs) {
             if (!in.node) continue;
@@ -105,6 +113,9 @@ private:
     int length = 0;
     float* audio = nullptr;
 
+    std::string name;
+    mutable std::string cachedName;
+
     int pos = 0;
     bool playing = false;
 
@@ -116,16 +127,18 @@ public:
     }
 
     const char* getName() const override {
-        return "Sound";
+        cachedName = "Sound: " + name;
+        return cachedName.c_str();
     }
 
     void print(int depth = 0) const override {
         for (int i = 0; i < depth; ++i) std::cout << "  ";
-        std::cout << "Sound\n";
+        std::cout << getName() << std::endl;
     }
 
     bool load(const std::string& file) {
         short* pcm = nullptr;
+        name = file;
 
         length = stb_vorbis_decode_filename(
             file.c_str(),
@@ -184,6 +197,9 @@ private:
     int channels = 0;
     bool playing = false;
 
+    std::string name;
+    mutable std::string cachedName;
+
     static constexpr int MAX_FRAMES = 1024;
     static constexpr int MAX_CH = 2;
 
@@ -195,15 +211,18 @@ public:
     }
 
     const char* getName() const override {
-        return "Music";
+        cachedName = "Music: " + name;
+        return cachedName.c_str();
     }
 
     void print(int depth = 0) const override {
         for (int i = 0; i < depth; ++i) std::cout << "  ";
-        std::cout << "Music\n";
+        std::cout << getName() << std::endl;
     }
 
     bool load(const std::string& file) {
+        name = file;
+
         int err = 0;
         vorbis = stb_vorbis_open_filename(file.c_str(), &err, nullptr);
         if (!vorbis || err) return false;
@@ -283,12 +302,12 @@ public:
     }
 
     const char* getName() const override {
-        return "Effect";
+        return "InsertEffect";
     }
 
     void print(int depth = 0) const override {
         for (int i = 0; i < depth; ++i) std::cout << "  ";
-        std::cout << "Effect\n";
+        std::cout << "InsertEffect\n";
 
         if (input)
             input->print(depth + 1);
@@ -354,7 +373,7 @@ public:
 
     Mixer& master() { return masterBuss; }
 
-    bool init(int _sampleRate, int _numChannels) {
+    bool init(const int _sampleRate, const int _numChannels) {
         deviceConfig = ma_device_config_init(ma_device_type_playback);
         deviceConfig.playback.format =  ma_format_f32;
         deviceConfig.playback.channels = _numChannels;
@@ -364,6 +383,8 @@ public:
 
         numChannels = _numChannels;
         sampleRate = _sampleRate;
+
+        masterBuss.setName("Master Bus");
 
         if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
             LOG_ERROR("Failed to open playback device");
