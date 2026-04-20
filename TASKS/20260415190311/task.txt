@@ -1,7 +1,9 @@
 20260415190311
 other audio formats
 40
-open
+closed
 feature,wav,mp3,flac
 
+
 add support for other file types other than ogg vorbis lmao
+

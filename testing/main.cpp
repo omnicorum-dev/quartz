@@ -9,10 +9,14 @@ int main() {
     quartz.init(48000, 2);
 
     Sound ctt;
-    ctt.load("../assets/ctt.ogg");
+    ctt.load("../assets/ctt.ogg", AudioFileFormat::OGG);
+
+    omni::LOG_DEBUG("ctt length: {}", ctt.getLength());
 
     Music htf;
-    htf.load("../assets/htf.ogg");
+    if (!htf.load("/Users/nicorusso/Development/Quartz/assets/cegl.mp3", MP3)) {
+        omni::LOG_ERROR("Could not load wav file");
+    }
 
     Mixer bus;
 
@@ -27,7 +31,7 @@ int main() {
     quartz.master().print();
 
     while (true) {
-        char c = getchar();
+        const int c = getchar();
         if (c == 'q') {
             break;
         } else if (c == 's') {

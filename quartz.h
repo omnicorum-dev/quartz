@@ -11,7 +11,23 @@
 #define STB_VORBIS_IMPLEMENTATION
 #include <stb_vorbis.c>
 
+#define DR_WAV_IMPLEMENTATION
+#include <dr_wav.h>
+
+#define DR_MP3_IMPLEMENTATION
+#include <dr_mp3.h>
+
+#define DR_FLAC_IMPLEMENTATION
+#include <dr_flac.h>
+
 using namespace omni;
+
+enum AudioFileFormat {
+    WAV,
+    MP3,
+    OGG,
+    FLAC
+};
 
 inline void pcm16_to_float(const short* input, float* output, const int count) {
     for (int i = 0; i < count; ++i) {
@@ -109,8 +125,9 @@ class Sound : public AudioNode {
 private:
     int channels = 0;
     int sampleRate = 0;
+    AudioFileFormat format = OGG;
 
-    int length = 0;
+    uint64_t length = 0;
     float* audio = nullptr;
 
     std::string name;
@@ -121,6 +138,8 @@ private:
 
 public:
     bool loop = false;
+
+    uint64_t getLength() const { return length; }
 
     ~Sound() {
         delete[] audio;
@@ -136,9 +155,10 @@ public:
         std::cout << getName() << std::endl;
     }
 
-    bool load(const std::string& file) {
+    bool loadOGG(const std::string& file) {
         short* pcm = nullptr;
         name = file;
+        format = OGG;
 
         length = stb_vorbis_decode_filename(
             file.c_str(),
@@ -146,6 +166,8 @@ public:
             &sampleRate,
             &pcm
         );
+
+        omni::LOG_DEBUG("length: {}", length);
 
         if (length <= 0 || !pcm) return false;
 
@@ -158,6 +180,79 @@ public:
 
         pos = 0;
         return true;
+    }
+
+    bool loadWAV(const std::string& file) {
+        name = file;
+        format = WAV;
+
+        uint64_t frameCount;
+        uint32_t sr;
+        uint32_t chan;
+
+        audio = drwav_open_file_and_read_pcm_frames_f32(file.c_str(),
+            &chan, &sr, &frameCount,
+            nullptr);
+
+        length = static_cast<int>(frameCount);
+        channels = static_cast<int>(chan);
+        sampleRate = static_cast<int>(sr);
+
+        pos = 0;
+        return true;
+    }
+
+    bool loadMP3(const std::string& file) {
+        name = file;
+        format = MP3;
+
+        uint64_t frameCount;
+        drmp3_config config;
+
+        audio = drmp3_open_file_and_read_pcm_frames_f32(file.c_str(),
+            &config, &frameCount,
+            nullptr);
+
+        length = static_cast<int>(frameCount);
+        channels = static_cast<int>(config.channels);
+        sampleRate = static_cast<int>(config.sampleRate);
+
+        pos = 0;
+        return true;
+    }
+
+    bool loadFLAC(const std::string& file) {
+        name = file;
+        format = FLAC;
+
+        uint64_t frameCount;
+        uint32_t sr;
+        uint32_t chan;
+
+        audio = drflac_open_file_and_read_pcm_frames_f32(file.c_str(),
+            &chan, &sr, &frameCount,
+            nullptr);
+
+        length = static_cast<int>(frameCount);
+        channels = static_cast<int>(chan);
+        sampleRate = static_cast<int>(sr);
+
+        pos = 0;
+        return true;
+    }
+
+    bool load(const std::string& file, const AudioFileFormat fileFormat) {
+        switch (fileFormat) {
+            case WAV:
+                return loadWAV(file);
+            case MP3:
+                return loadMP3(file);
+            case FLAC:
+                return loadFLAC(file);
+            case OGG:
+                return loadOGG(file);
+        }
+        return false;
     }
 
     void play()    { playing = true;  }
@@ -174,11 +269,11 @@ public:
         else         { play();  }
     }
 
-    void getSamples(float* output, int numFrames, int numChannels) override {
+    void getSamples(float* output, const int numFrames, const int numChannels) override {
         if (!playing || !audio) return;
 
         const int total = numFrames * numChannels;
-        const int srcTotal = length * channels;
+        const uint64_t srcTotal = length * channels;
 
         for (int i = 0; i < total; ++i) {
             if (pos >= srcTotal) {
@@ -194,7 +289,13 @@ public:
 class Music : public AudioNode {
 private:
     stb_vorbis* vorbis = nullptr;
+    drmp3* mp3 = new drmp3();
+    drwav* wav = new drwav();
+    drflac* flac = new drflac();
+    AudioFileFormat format = OGG;
+
     int channels = 0;
+    int sampleRate = 0;
     bool playing = false;
 
     std::string name;
@@ -215,20 +316,79 @@ public:
         return cachedName.c_str();
     }
 
-    void print(int depth = 0) const override {
+    void print(const int depth) const override {
         for (int i = 0; i < depth; ++i) std::cout << "  ";
         std::cout << getName() << std::endl;
     }
 
-    bool load(const std::string& file) {
+    bool loadOGG(const std::string& file) {
         name = file;
+        format = OGG;
 
         int err = 0;
         vorbis = stb_vorbis_open_filename(file.c_str(), &err, nullptr);
         if (!vorbis || err) return false;
 
         channels = stb_vorbis_get_info(vorbis).channels;
+        sampleRate = stb_vorbis_get_info(vorbis).sample_rate;
         return true;
+    }
+
+    bool loadWAV(const std::string& file) {
+        name = file;
+        format = WAV;
+
+        if (!drwav_init_file(wav, file.c_str(), nullptr)) {
+            return false;
+        }
+
+        channels = static_cast<int>(wav->channels);
+        sampleRate = static_cast<int>(wav->sampleRate);
+
+        return true;
+    }
+
+    bool loadMP3(const std::string& file) {
+        name = file;
+        format = MP3;
+
+        if (!drmp3_init_file(mp3, file.c_str(), nullptr)) {
+            return false;
+        }
+
+        channels = static_cast<int>(mp3->channels);
+        sampleRate = static_cast<int>(mp3->sampleRate);
+
+        return true;
+    }
+
+    bool loadFLAC(const std::string& file) {
+        name = file;
+        format = FLAC;
+
+        flac = drflac_open_file(file.c_str(), nullptr);
+        if (!flac) {
+            return false;
+        }
+
+        channels = flac->channels;
+        sampleRate = flac->sampleRate;
+
+        return true;
+    }
+
+    bool load(const std::string& file, const AudioFileFormat fileFormat) {
+        switch (fileFormat) {
+            case WAV:
+                return loadWAV(file);
+            case MP3:
+                return loadMP3(file);
+            case FLAC:
+                return loadFLAC(file);
+            case OGG:
+                return loadOGG(file);
+        }
+        return false;
     }
 
     void play()  { playing = true; }
@@ -251,8 +411,12 @@ public:
         else         { play();  }
     }
 
-    void getSamples(float* output, int numFrames, int numChannels) override {
-        if (!playing || !vorbis) return;
+    void getSamples(float* output, const int numFrames, const int numChannels) override {
+        if (!playing ||
+            (format == OGG && !vorbis) ||
+            (format == WAV && !wav) ||
+            (format == MP3 && !mp3) ||
+            (format == FLAC && !flac)) return;
 
         short pcm[MAX_FRAMES * MAX_CH];
         float temp[MAX_FRAMES * MAX_CH];
@@ -262,34 +426,109 @@ public:
         while (framesLeft > 0) {
             int block = std::min(framesLeft, MAX_FRAMES);
 
-            int framesRead = stb_vorbis_get_samples_short_interleaved(
-                vorbis,
-                channels,
-                pcm,
-                block * channels
-            );
+            int framesRead = 0;
 
-            if (framesRead == 0) {
-                if (loop) {
-                    stb_vorbis_seek_start(vorbis);
-                    continue;
-                } else {
-                    playing = false;
+            switch (format) {
+                case OGG: {
+                    framesRead = stb_vorbis_get_samples_short_interleaved(
+                        vorbis,
+                        channels,
+                        pcm,
+                        block * channels
+                    );
+
+                    if (framesRead == 0) {
+                        if (loop) {
+                            stb_vorbis_seek_start(vorbis);
+                            continue;
+                        } else {
+                            playing = false;
+                            break;
+                        }
+                    }
+
+                    int samples = framesRead * channels;
+
+                    pcm16_to_float(pcm, temp, samples);
+
+                    for (int i = 0; i < samples; ++i)
+                        output[i] += temp[i];
+
+                    framesLeft -= framesRead;
+                    output += samples;
+                    break;
+                }
+                case WAV: {
+                    framesRead = static_cast<int>(drwav_read_pcm_frames_f32(wav, block, temp));
+
+                    if (framesRead == 0) {
+                        if (loop) {
+                            drwav_seek_to_pcm_frame(wav, 0);
+                            continue;
+                        } else {
+                            playing = false;
+                            break;
+                        }
+                    }
+
+                    const int samples = framesRead * channels;
+
+                    for (int i = 0; i < samples; ++i)
+                        output[i] += temp[i];
+
+                    framesLeft -= framesRead;
+                    output += samples;
+                    break;
+                }
+                case MP3: {
+                    framesRead = static_cast<int>(drmp3_read_pcm_frames_f32(mp3, block, temp));
+
+                    if (framesRead == 0) {
+                        if (loop) {
+                            drmp3_seek_to_pcm_frame(mp3, 0);
+                            continue;
+                        } else {
+                            playing = false;
+                            break;
+                        }
+                    }
+
+                    const int samples = framesRead * channels;
+
+                    for (int i = 0; i < samples; ++i)
+                        output[i] += temp[i];
+
+                    framesLeft -= framesRead;
+                    output += samples;
+                    break;
+                }
+                case FLAC: {
+                    framesRead = static_cast<int>(drflac_read_pcm_frames_f32(flac, block, temp));
+
+                    if (framesRead == 0) {
+                        if (loop) {
+                            drflac_seek_to_pcm_frame(flac, 0);
+                            continue;
+                        } else {
+                            playing = false;
+                            break;
+                        }
+                    }
+
+                    const int samples = framesRead * channels;
+
+                    for (int i = 0; i < samples; ++i)
+                        output[i] += temp[i];
+
+                    framesLeft -= framesRead;
+                    output += samples;
                     break;
                 }
             }
-
-            int samples = framesRead * channels;
-
-            pcm16_to_float(pcm, temp, samples);
-
-            for (int i = 0; i < samples; ++i)
-                output[i] += temp[i];
-
-            framesLeft -= framesRead;
-            output += samples;
         }
     }
+
+    int load(int _cpp_par_);
 };
 
 class InsertEffect : public AudioNode {

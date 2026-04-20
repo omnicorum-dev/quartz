@@ -1,0 +1,7 @@
+20260420163752
+figure out what the hell 'length' is
+80
+open
+bug,ogg,load,sound
+
+length returned by loadOGG seems to be wrong
