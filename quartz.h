@@ -44,12 +44,12 @@ class AudioNode {
 public:
     virtual ~AudioNode() = default;
 
-    virtual void getSamples(float* output, int numFrames, int numChannels) = 0;
+    virtual void getSamples(float* output, int numFrames, int numChannels, int sampleRate) = 0;
 
     // for tree/graph visualization
-    virtual void print(int depth = 0) const = 0;
+    virtual void print(int depth) const = 0;
 
-    virtual const char* getName() const = 0;
+    [[nodiscard]] virtual const char* getName() const = 0;
 };
 
 struct Connection {
@@ -97,7 +97,7 @@ public:
         }
     }
 
-    void getSamples(float* output, int numFrames, int numChannels) override {
+    void getSamples(float* output, int numFrames, int numChannels, int sampleRate) override {
         const int total = numFrames * numChannels;
 
         for (int i = 0; i < total; ++i)
@@ -110,7 +110,7 @@ public:
 
             std::fill(temp.begin(), temp.end(), 0.0f);
 
-            in.node->getSamples(temp.data(), numFrames, numChannels);
+            in.node->getSamples(temp.data(), numFrames, numChannels, sampleRate);
 
             for (int i = 0; i < total; ++i)
                 output[i] += temp[i] * in.gain;
@@ -124,7 +124,7 @@ public:
 class Sound : public AudioNode {
 private:
     int channels = 0;
-    int sampleRate = 0;
+    int fileSampleRate = 0;
     AudioFileFormat format = OGG;
 
     uint64_t length = 0;
@@ -163,7 +163,7 @@ public:
         length = stb_vorbis_decode_filename(
             file.c_str(),
             &channels,
-            &sampleRate,
+            &fileSampleRate,
             &pcm
         );
 
@@ -196,7 +196,7 @@ public:
 
         length = static_cast<int>(frameCount);
         channels = static_cast<int>(chan);
-        sampleRate = static_cast<int>(sr);
+        fileSampleRate = static_cast<int>(sr);
 
         pos = 0;
         return true;
@@ -215,7 +215,7 @@ public:
 
         length = static_cast<int>(frameCount);
         channels = static_cast<int>(config.channels);
-        sampleRate = static_cast<int>(config.sampleRate);
+        fileSampleRate = static_cast<int>(config.sampleRate);
 
         pos = 0;
         return true;
@@ -235,7 +235,7 @@ public:
 
         length = static_cast<int>(frameCount);
         channels = static_cast<int>(chan);
-        sampleRate = static_cast<int>(sr);
+        fileSampleRate = static_cast<int>(sr);
 
         pos = 0;
         return true;
@@ -269,7 +269,7 @@ public:
         else         { play();  }
     }
 
-    void getSamples(float* output, const int numFrames, const int numChannels) override {
+    void getSamples(float* output, const int numFrames, const int numChannels, int sampleRate) override {
         if (!playing || !audio) return;
 
         const int total = numFrames * numChannels;
@@ -289,13 +289,13 @@ public:
 class Music : public AudioNode {
 private:
     stb_vorbis* vorbis = nullptr;
-    drmp3* mp3 = new drmp3();
-    drwav* wav = new drwav();
-    drflac* flac = new drflac();
+    drmp3* mp3 = nullptr;
+    drwav* wav = nullptr;
+    drflac* flac = nullptr;
     AudioFileFormat format = OGG;
 
     int channels = 0;
-    int sampleRate = 0;
+    int fileSampleRate = 0;
     bool playing = false;
 
     std::string name;
@@ -307,8 +307,11 @@ private:
 public:
     bool loop = false;
 
-    ~Music() {
+    ~Music() override {
         if (vorbis) stb_vorbis_close(vorbis);
+        if (flac) drflac_close(flac);
+        if (mp3) free(mp3);
+        if (wav) free(wav);
     }
 
     const char* getName() const override {
@@ -330,7 +333,7 @@ public:
         if (!vorbis || err) return false;
 
         channels = stb_vorbis_get_info(vorbis).channels;
-        sampleRate = stb_vorbis_get_info(vorbis).sample_rate;
+        fileSampleRate = stb_vorbis_get_info(vorbis).sample_rate;
         return true;
     }
 
@@ -338,12 +341,14 @@ public:
         name = file;
         format = WAV;
 
+        wav = new drwav();
+
         if (!drwav_init_file(wav, file.c_str(), nullptr)) {
             return false;
         }
 
         channels = static_cast<int>(wav->channels);
-        sampleRate = static_cast<int>(wav->sampleRate);
+        fileSampleRate = static_cast<int>(wav->sampleRate);
 
         return true;
     }
@@ -352,12 +357,14 @@ public:
         name = file;
         format = MP3;
 
+        mp3 = new drmp3();
+
         if (!drmp3_init_file(mp3, file.c_str(), nullptr)) {
             return false;
         }
 
         channels = static_cast<int>(mp3->channels);
-        sampleRate = static_cast<int>(mp3->sampleRate);
+        fileSampleRate = static_cast<int>(mp3->sampleRate);
 
         return true;
     }
@@ -366,13 +373,15 @@ public:
         name = file;
         format = FLAC;
 
+        flac = new drflac();
+
         flac = drflac_open_file(file.c_str(), nullptr);
         if (!flac) {
             return false;
         }
 
         channels = flac->channels;
-        sampleRate = flac->sampleRate;
+        fileSampleRate = flac->sampleRate;
 
         return true;
     }
@@ -411,7 +420,90 @@ public:
         else         { play();  }
     }
 
-    void getSamples(float* output, const int numFrames, const int numChannels) override {
+    // Reads up to `frames` source frames into `out`, returns frames actually read.
+    int readFrames(float* out, int frames) {
+        switch (format) {
+            case OGG: {
+                short pcm[MAX_FRAMES * MAX_CH];
+                int got = stb_vorbis_get_samples_short_interleaved(vorbis, channels, pcm, frames * channels);
+                if (got > 0) pcm16_to_float(pcm, out, got * channels);
+                return got;
+            }
+            case WAV:  return static_cast<int>(drwav_read_pcm_frames_f32 (wav,  frames, out));
+            case MP3:  return static_cast<int>(drmp3_read_pcm_frames_f32  (mp3,  frames, out));
+            case FLAC: return static_cast<int>(drflac_read_pcm_frames_f32 (flac, frames, out));
+            default:   return 0;
+        }
+    }
+
+    void seekToStart() {
+        switch (format) {
+            case OGG:  stb_vorbis_seek_start(vorbis);          break;
+            case WAV:  drwav_seek_to_pcm_frame(wav,   0);      break;
+            case MP3:  drmp3_seek_to_pcm_frame(mp3,   0);      break;
+            case FLAC: drflac_seek_to_pcm_frame(flac, 0);      break;
+        }
+    }
+
+    void getSamples(float* output, const int numFrames, const int numChannels, const int sampleRate) override {
+        if (!playing ||
+            (format == OGG  && !vorbis) ||
+            (format == WAV  && !wav)    ||
+            (format == MP3  && !mp3)    ||
+            (format == FLAC && !flac)) return;
+
+        // Ratio > 1 means the file has more samples per second than we need,
+        // so we can read fewer source frames to fill each output frame.
+        const double resampleRatio = static_cast<double>(fileSampleRate) / sampleRate;
+        const int    srcFramesNeeded = std::max(1, static_cast<int>(std::ceil(numFrames * resampleRatio)));
+
+        // Temp buffer sized for the source frames we'll actually decode.
+        std::vector<float> srcBuf(srcFramesNeeded * channels);
+
+        // ── 1.  Decode all source frames in one unified loop ─────────────────────
+        int srcFramesRead = 0;
+        int framesLeft    = srcFramesNeeded;
+        float* dst        = srcBuf.data();
+
+        while (framesLeft > 0) {
+            const int block = std::min(framesLeft, MAX_FRAMES);
+            int       got   = readFrames(dst, block);   // see helper below
+
+            if (got == 0) {
+                if (loop) { seekToStart(); continue; }
+                playing = false;
+                break;
+            }
+
+            srcFramesRead += got;
+            framesLeft    -= got;
+            dst           += got * channels;
+        }
+
+        if (srcFramesRead == 0) return;
+
+        // ── 2.  Resample (linear interpolation) and mix into output ──────────────
+        for (int outFrame = 0; outFrame < numFrames; ++outFrame) {
+            // Where in the source buffer does this output frame map to?
+            const double srcPos   = outFrame * resampleRatio;
+            const int    srcIdx   = static_cast<int>(srcPos);
+            const double frac     = srcPos - srcIdx;
+            const int    srcIdxB  = std::min(srcIdx + 1, srcFramesRead - 1);
+
+            for (int ch = 0; ch < numChannels; ++ch) {
+                // Mix channels: if the file has fewer channels than requested,
+                // wrap around (e.g. mono -> duplicate to all output channels).
+                const int fileCh = ch % channels;
+
+                const float a = srcBuf[srcIdx  * channels + fileCh];
+                const float b = srcBuf[srcIdxB * channels + fileCh];
+
+                output[outFrame * numChannels + ch] += static_cast<float>(a + frac * (b - a));
+            }
+        }
+    }
+
+    void getSamplesOld(float* output, const int numFrames, const int numChannels, int sampleRate) {
         if (!playing ||
             (format == OGG && !vorbis) ||
             (format == WAV && !wav) ||
@@ -527,8 +619,6 @@ public:
             }
         }
     }
-
-    int load(int _cpp_par_);
 };
 
 class InsertEffect : public AudioNode {
@@ -554,14 +644,14 @@ public:
 
     virtual void process(float* buffer, int frames, int channels) = 0;
 
-    void getSamples(float* output, int frames, int channels) override {
+    void getSamples(float* output, int frames, int channels, int sampleRate) override {
         const int total = frames * channels;
 
         for (int i = 0; i < total; ++i)
             output[i] = 0.0f;
 
         if (input)
-            input->getSamples(output, frames, channels);
+            input->getSamples(output, frames, channels, sampleRate);
 
         process(output, frames, channels);
     }
@@ -607,7 +697,7 @@ public:
     {
         Quartz* self = static_cast<Quartz*>(pDevice->pUserData);
 
-        self->masterBuss.getSamples((float*)pOutput, frameCount, self->numChannels);
+        self->masterBuss.getSamples((float*)pOutput, frameCount, self->numChannels, self->sampleRate);
     }
 
     Mixer& master() { return masterBuss; }

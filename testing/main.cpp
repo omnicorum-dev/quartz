@@ -14,9 +14,11 @@ int main() {
     omni::LOG_DEBUG("ctt length: {}", ctt.getLength());
 
     Music htf;
-    if (!htf.load("/Users/nicorusso/Development/Quartz/assets/cegl.mp3", MP3)) {
-        omni::LOG_ERROR("Could not load wav file");
+    if (!htf.load("../assets/archery.flac", FLAC)) {
+        omni::LOG_ERROR("Could not load file");
     }
+
+    htf.loop = true;
 
     Mixer bus;
 
