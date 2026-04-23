@@ -127,19 +127,32 @@ private:
     int fileSampleRate = 0;
     AudioFileFormat format = OGG;
 
+    float playbackSpeed = 1.0f;
+    int effectiveSampleRate = 0;
+
     uint64_t length = 0;
     float* audio = nullptr;
 
     std::string name;
     mutable std::string cachedName;
 
-    int pos = 0;
+    double playhead = 0;
     bool playing = false;
 
 public:
     bool loop = false;
 
     uint64_t getLength() const { return length; }
+
+    void setSampleRate(const int sampleRate) {
+        fileSampleRate = sampleRate;
+        effectiveSampleRate = fileSampleRate * playbackSpeed;
+    }
+
+    void setPlaybackSpeed(const float speed) {
+        playbackSpeed = speed;
+        effectiveSampleRate = fileSampleRate * speed;
+    }
 
     ~Sound() {
         delete[] audio;
@@ -167,6 +180,8 @@ public:
             &pcm
         );
 
+        setSampleRate(fileSampleRate);
+
         omni::LOG_DEBUG("length: {}", length);
 
         if (length <= 0 || !pcm) return false;
@@ -178,7 +193,7 @@ public:
 
         free(pcm);
 
-        pos = 0;
+        playhead = 0;
         return true;
     }
 
@@ -196,9 +211,11 @@ public:
 
         length = static_cast<int>(frameCount);
         channels = static_cast<int>(chan);
-        fileSampleRate = static_cast<int>(sr);
+        const int sampleRate = static_cast<int>(sr);
 
-        pos = 0;
+        setSampleRate(sampleRate);
+
+        playhead = 0;
         return true;
     }
 
@@ -215,9 +232,11 @@ public:
 
         length = static_cast<int>(frameCount);
         channels = static_cast<int>(config.channels);
-        fileSampleRate = static_cast<int>(config.sampleRate);
+        const int sampleRate = static_cast<int>(config.sampleRate);
 
-        pos = 0;
+        setSampleRate(sampleRate);
+
+        playhead = 0;
         return true;
     }
 
@@ -235,9 +254,11 @@ public:
 
         length = static_cast<int>(frameCount);
         channels = static_cast<int>(chan);
-        fileSampleRate = static_cast<int>(sr);
+        const int sampleRate = static_cast<int>(sr);
 
-        pos = 0;
+        setSampleRate(sampleRate);
+
+        playhead = 0;
         return true;
     }
 
@@ -257,8 +278,8 @@ public:
 
     void play()    { playing = true;  }
     void pause()   { playing = false; }
-    void stop()    { playing = false; pos = 0; }
-    void restart() { pos = 0; }
+    void stop()    { playing = false; playhead = 0; }
+    void restart() { playhead = 0; }
 
     void playPause() {
         if (playing) { pause(); }
@@ -272,16 +293,24 @@ public:
     void getSamples(float* output, const int numFrames, const int numChannels, int sampleRate) override {
         if (!playing || !audio) return;
 
-        const int total = numFrames * numChannels;
         const uint64_t srcTotal = length * channels;
+        const double step = static_cast<double>(effectiveSampleRate) / sampleRate;
 
-        for (int i = 0; i < total; ++i) {
-            if (pos >= srcTotal) {
-                if (loop) pos = 0;
+        for (int i = 0; i < numFrames; ++i) {
+            // Compute the base source frame index (fractional)
+            uint64_t srcFrame = static_cast<uint64_t>(playhead);
+
+            if (srcFrame * channels >= srcTotal) {
+                if (loop) { playhead = 0.0; srcFrame = 0; }
                 else { playing = false; break; }
             }
 
-            output[i] += audio[pos++];
+            for (int ch = 0; ch < numChannels; ++ch) {
+                uint64_t srcCh = ch % channels; // handle mono -> stereo upmix, etc.
+                output[i * numChannels + ch] += audio[srcFrame * channels + srcCh];
+            }
+
+            playhead += step;
         }
     }
 };
@@ -298,6 +327,9 @@ private:
     int fileSampleRate = 0;
     bool playing = false;
 
+    float playbackSpeed = 1.0f;
+    int effectiveSampleRate = 0;
+
     std::string name;
     mutable std::string cachedName;
 
@@ -312,6 +344,16 @@ public:
         if (flac) drflac_close(flac);
         if (mp3) free(mp3);
         if (wav) free(wav);
+    }
+
+    void setSampleRate(const int sampleRate) {
+        fileSampleRate = sampleRate;
+        effectiveSampleRate = sampleRate * playbackSpeed;
+    }
+
+    void setPlaybackSpeed(const float speed) {
+        playbackSpeed = speed;
+        effectiveSampleRate = fileSampleRate * playbackSpeed;
     }
 
     const char* getName() const override {
@@ -334,6 +376,9 @@ public:
 
         channels = stb_vorbis_get_info(vorbis).channels;
         fileSampleRate = stb_vorbis_get_info(vorbis).sample_rate;
+
+        setSampleRate(fileSampleRate);
+
         return true;
     }
 
@@ -349,6 +394,8 @@ public:
 
         channels = static_cast<int>(wav->channels);
         fileSampleRate = static_cast<int>(wav->sampleRate);
+
+        setSampleRate(fileSampleRate);
 
         return true;
     }
@@ -366,6 +413,8 @@ public:
         channels = static_cast<int>(mp3->channels);
         fileSampleRate = static_cast<int>(mp3->sampleRate);
 
+        setSampleRate(fileSampleRate);
+
         return true;
     }
 
@@ -382,6 +431,8 @@ public:
 
         channels = flac->channels;
         fileSampleRate = flac->sampleRate;
+
+        setSampleRate(fileSampleRate);
 
         return true;
     }
@@ -421,7 +472,7 @@ public:
     }
 
     // Reads up to `frames` source frames into `out`, returns frames actually read.
-    int readFrames(float* out, int frames) {
+    int readFrames(float* out, const int frames) const {
         switch (format) {
             case OGG: {
                 short pcm[MAX_FRAMES * MAX_CH];
@@ -436,7 +487,7 @@ public:
         }
     }
 
-    void seekToStart() {
+    void seekToStart() const {
         switch (format) {
             case OGG:  stb_vorbis_seek_start(vorbis);          break;
             case WAV:  drwav_seek_to_pcm_frame(wav,   0);      break;
@@ -454,7 +505,8 @@ public:
 
         // Ratio > 1 means the file has more samples per second than we need,
         // so we can read fewer source frames to fill each output frame.
-        const double resampleRatio = static_cast<double>(fileSampleRate) / sampleRate;
+        //const double resampleRatio = static_cast<double>(fileSampleRate) / sampleRate;
+        const double resampleRatio = static_cast<double>(effectiveSampleRate) / sampleRate;
         const int    srcFramesNeeded = std::max(1, static_cast<int>(std::ceil(numFrames * resampleRatio)));
 
         // Temp buffer sized for the source frames we'll actually decode.

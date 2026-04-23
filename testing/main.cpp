@@ -9,7 +9,7 @@ int main() {
     quartz.init(48000, 2);
 
     Sound ctt;
-    ctt.load("../assets/ctt.ogg", AudioFileFormat::OGG);
+    ctt.load("../assets/archery.flac", AudioFileFormat::FLAC);
 
     omni::LOG_DEBUG("ctt length: {}", ctt.getLength());
 
@@ -19,6 +19,8 @@ int main() {
     }
 
     htf.loop = true;
+    htf.setPlaybackSpeed(2.5f);
+    ctt.setPlaybackSpeed(2.5f);
 
     Mixer bus;
 
