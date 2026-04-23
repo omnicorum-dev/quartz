@@ -154,8 +154,13 @@ public:
         effectiveSampleRate = fileSampleRate * speed;
     }
 
-    ~Sound() {
-        delete[] audio;
+    Sound() = default;
+    Sound(const std::string& file, const AudioFileFormat fileFormat) {
+        load(file, fileFormat);
+    }
+    ~Sound() override {
+        //delete[] audio;
+        free(audio);
     }
 
     const char* getName() const override {
@@ -339,6 +344,10 @@ private:
 public:
     bool loop = false;
 
+    Music() = default;
+    Music(const std::string& file, const AudioFileFormat fileFormat) {
+        load(file, fileFormat);
+    }
     ~Music() override {
         if (vorbis) stb_vorbis_close(vorbis);
         if (flac) drflac_close(flac);

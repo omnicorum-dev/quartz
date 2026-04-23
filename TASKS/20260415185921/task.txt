@@ -1,7 +1,9 @@
 20260415185921
 Varispeed playback
 20
-open
+closed
 sample rate,feature
 
+
 Add the ability to play audio at different speeds (changeable in realtime). Also with a converstion function to be able to play songs that are not at 48k at their normal pitch/speed
+

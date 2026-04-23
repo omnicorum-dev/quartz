@@ -8,8 +8,7 @@ int main() {
 
     quartz.init(48000, 2);
 
-    Sound ctt;
-    ctt.load("../assets/archery.flac", AudioFileFormat::FLAC);
+    Sound ctt("../assets/archery.flac", AudioFileFormat::FLAC);
 
     omni::LOG_DEBUG("ctt length: {}", ctt.getLength());
 
