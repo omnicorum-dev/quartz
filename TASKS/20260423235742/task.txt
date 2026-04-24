@@ -1,0 +1,7 @@
+20260423235742
+fix SoftClipper
+23
+open
+bug,distortion,soft clip
+
+Soft Clipper doesn't appear to be working correctly. fix it
