@@ -1,27 +1,53 @@
-# QUARTZ
+# Quartz 🎵
 
-A lightweight, header-only C++ audio engine built on [miniaudio](https://miniaud.io).
-
-Quartz gives you a node-based audio graph — mix sounds, stream music, and chain effects — with a single `init()` call to open the output device.
+A lightweight, header-only C++ audio engine for real-time playback, mixing, and DSP effects. Quartz provides a node-based signal graph where audio sources, mixers, and effects can be chained together and routed to your output device.
 
 ---
 
 ## Features
 
-- **Node graph architecture** — composable `AudioNode` tree: mixers, sounds, music streams, and effects chain together freely
-- **Sound playback** — load and play `.ogg` files fully decoded into memory; ideal for short clips and SFX
-- **Music streaming** — stream `.ogg` files from disk frame-by-frame; suitable for long tracks and background music
-- **Per-input gain** — each connection into a `Mixer` carries its own gain value, plus a master gain on the mixer itself
-- **Insert effects** — chainable `InsertEffect` base class; `HardClip` included out of the box
-- **Looping** — loop flag on both `Sound` and `Music` nodes
-- **Graph inspection** — `print()` on any node dumps the full subtree to stdout for debugging
-- **miniaudio backend** — cross-platform audio output (Windows, macOS, Linux, iOS, Android) with no extra dependencies
+- **Multi-format playback** — WAV, MP3, OGG (Vorbis), and FLAC
+- **Two playback modes** — `Sound` (fully pre-loaded into memory) and `Music` (streamed from disk)
+- **Node-based signal graph** — chain mixers, effects, and sources in any topology
+- **Real-time DSP effects** — biquad filters, Linkwitz-Riley filters, distortion/waveshaping
+- **Playback control** — play, pause, stop, loop, and variable playback speed with linear interpolation resampling
+- **Header-only** — easy to integrate via CMake
+
+---
+
+## Requirements
+
+- C++17 or later
+- CMake 3.31+
+- [miniaudio](https://miniaud.io/) (included in `vendor/`)
+- [dr_libs](https://github.com/mackron/dr_libs) — dr_wav, dr_mp3, dr_flac (included in `vendor/`)
+- [stb_vorbis](https://github.com/nothings/stb) (included in `vendor/`)
+- [base-layer](https://github.com/nicomoraes/base-layer) (git submodule in `vendor/base-layer/`)
 
 ---
 
 ## Installation
 
-Don't even try at this point. I'm working on making it more user-friendly, but it's not there yet.
+### Clone with submodules
+
+```bash
+git clone --recurse-submodules https://github.com/your-username/quartz.git
+```
+
+If you already cloned without submodules:
+
+```bash
+git submodule update --init --recursive
+# or use the helper script:
+./update_submodules.sh
+```
+
+### Add to your CMake project
+
+```cmake
+add_subdirectory(quartz)
+target_link_libraries(your_target PRIVATE Quartz)
+```
 
 ---
 
@@ -30,160 +56,245 @@ Don't even try at this point. I'm working on making it more user-friendly, but i
 ```cpp
 #include <quartz.h>
 
+#define SAMPLE_RATE 48000
+#define CHANNELS    2
+
 int main() {
-    Quartz audio;
-    audio.init(44100, 2); // 44.1 kHz stereo
+    AudioManager quartz;
+    quartz.init(SAMPLE_RATE, CHANNELS);
 
-    // Load a sound effect into memory
-    Sound* sfx = new Sound();
-    sfx->load("assets/explosion.ogg");
+    // Sound: fully loaded into memory — best for short clips
+    Quartz::Sound sfx("assets/click.wav", Quartz::WAV);
 
-    // Stream background music from disk
-    Music* bgm = new Music();
-    bgm->load("assets/theme.ogg");
+    // Music: streamed from disk — best for long tracks
+    Quartz::Music bgm;
+    bgm.load("assets/theme.ogg", Quartz::OGG);
+    bgm.loop = true;
 
-    // Add both to the master bus
-    audio.master().addInput(sfx, 0.8f); // 80% gain
-    audio.master().addInput(bgm, 0.5f); // 50% gain
+    // Route both into the master bus
+    quartz.master().addInput(&sfx);
+    quartz.master().addInput(&bgm);
 
-    // Keep the process alive while audio plays
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    sfx.play();
+    bgm.play();
 
-    delete sfx;
-    delete bgm;
-    return 0;
+    // Keep alive
+    while (true) { /* your app loop */ }
 }
 ```
 
 ---
 
-## Node Graph
+## Core Concepts
 
-Quartz's audio pipeline is a tree of `AudioNode` objects. The `Quartz` device owns a master `Mixer` that is called every audio callback. You build a graph by connecting nodes into it:
+### AudioManager
 
-```
-Quartz device
-└── Mixer (master bus)
-    ├── [gain=1.0] Music  ← streaming ogg
-    ├── [gain=0.8] Sound  ← in-memory ogg
-    └── [gain=1.0] HardClip
-                   └── Sound  ← clipped SFX
-```
-
-Print any subtree for debugging:
+The top-level engine. Initializes the audio device via miniaudio and owns the **master bus** — the final mix that goes to your speakers.
 
 ```cpp
-audio.master().print();
-// Mixer (inputs=3)
-//   gain=1
-//     Music
-//   gain=0.8
-//     Sound
-//   gain=1
-//     HardClip (t=0.9)
-//       Sound
+AudioManager quartz;
+quartz.init(48000, 2); // sample rate, channels
+
+Quartz::Mixer& master = quartz.master();
+```
+
+### Signal Graph
+
+Quartz uses a pull-based node graph. Each `AudioNode` implements `getSamples()`, which is called recursively from the master bus down through the graph on every audio callback.
+
+```
+Master Bus (Mixer)
+  └── Insert Effect (e.g. LR4 filter)
+        └── Sub-bus (Mixer)
+              ├── Music (streamed)
+              └── Sound (buffered)
+```
+
+Build graphs by connecting nodes:
+
+```cpp
+Quartz::Mixer subBus;
+Quartz::LR4 lowpass(quartz.getSampleRate(), quartz.getNumChannels());
+lowpass.setFreq(8000.f);
+
+quartz.master().addInput(&lowpass); // master pulls from filter
+lowpass.setInput(&subBus);          // filter pulls from sub-bus
+subBus.addInput(&mySound);          // sub-bus mixes sources
+```
+
+Print the current graph for debugging:
+
+```cpp
+quartz.master().print();
 ```
 
 ---
 
-## Chaining Effects
+## Audio Sources
 
-`InsertEffect` wraps another node and processes its output. Chain multiple effects by nesting them:
+### `Quartz::Sound`
+
+Decodes the entire file into memory on load. Best for short, frequently-triggered sounds (UI clicks, SFX).
 
 ```cpp
-Sound* sfx = new Sound();
-sfx->load("assets/crunch.ogg");
+Quartz::Sound sfx("assets/shoot.wav", Quartz::WAV);
 
-HardClip* clip = new HardClip();
-clip->threshold = 0.9f;
-clip->setInput(sfx);
+sfx.play();
+sfx.pause();
+sfx.stop();       // stops and resets playhead
+sfx.playStop();   // toggles between play and stop
+sfx.playPause();  // toggles between play and pause
 
-audio.master().addInput(clip, 1.0f);
+sfx.loop = true;
+sfx.setPlaybackSpeed(1.5f); // 1.0 = normal, 2.0 = double speed
+
+uint64_t frames = sfx.getLength(); // total frames in file
 ```
 
-Subclass `InsertEffect` to write your own:
+**Supported formats:** `Quartz::WAV`, `Quartz::MP3`, `Quartz::OGG`, `Quartz::FLAC`
+
+### `Quartz::Music`
+
+Streams audio from disk frame-by-frame. Best for long background music tracks. Uses linear interpolation for resampling and playback speed changes.
 
 ```cpp
-class Gain : public InsertEffect {
-public:
-    float amount = 1.0f;
+Quartz::Music bgm;
+bgm.load("assets/theme.flac", Quartz::FLAC);
 
-    const char* getName() const override { return "Gain"; }
+bgm.loop = true;
+bgm.setPlaybackSpeed(0.8f);
+bgm.play();
 
-    void print(int depth = 0) const override {
-        for (int i = 0; i < depth; ++i) std::cout << "  ";
-        std::cout << "Gain (x" << amount << ")\n";
-        if (input) input->print(depth + 1);
+float speed = bgm.getPlaybackSpeed();
+```
+
+---
+
+## DSP Effects
+
+All effects extend `InsertEffect` and implement `processSample()`. They plug into the graph via `setInput()`.
+
+### Biquad Filters (`RBJ`)
+
+A standard RBJ biquad with selectable filter type:
+
+```cpp
+Quartz::RBJ filter(sampleRate, channels);
+filter.setFilterType(Quartz::BiquadType::LOWPASS); // default
+filter.setFreq(2000.f); // Hz
+filter.setQ(0.707f);    // Q factor
+
+// Available types:
+// BiquadType::LOWPASS, HIGHPASS, BANDPASS, NOTCH,
+// PEAKING, HIGH_SHELF, LOW_SHELF, ALL_PASS
+```
+
+### Linkwitz-Riley 4th Order Filter (`LR4`)
+
+Two cascaded RBJ stages for a steeper, phase-aligned response:
+
+```cpp
+Quartz::LR4 crossover(sampleRate, channels);
+crossover.setFreq(10000.f);
+crossover.setFilterType(Quartz::BiquadType::HIGHPASS);
+```
+
+### Distortion / Waveshapers
+
+All distortion types share `setDrive()` and `setBias()`:
+
+| Class | Description |
+|---|---|
+| `RectifierHalf` | Half-wave rectifier (clips negative signal to 0) |
+| `RectifierFull` | Full-wave rectifier (absolute value) |
+| `HardClip` | Hard clip at a configurable threshold |
+| `TanhShaper` | Smooth saturation via `tanh` |
+| `SoftClipper` | Soft knee clipper with configurable threshold and knee |
+
+```cpp
+Quartz::TanhShaper sat(sampleRate, channels);
+sat.setDrive(2.0f); // pre-gain before waveshaper
+
+Quartz::HardClip clip(sampleRate, channels);
+clip.setThreshold_linear(0.7f);
+
+Quartz::SoftClipper soft(sampleRate, channels);
+soft.setThreshold_linear(0.8);
+soft.setKnee_dB(6.0);
+```
+
+---
+
+## Full Example
+
+```cpp
+#include <quartz.h>
+
+int main() {
+    AudioManager quartz;
+    quartz.init(48000, 2);
+
+    Quartz::Music music;
+    music.load("assets/song.ogg", Quartz::OGG);
+    music.loop = true;
+
+    Quartz::Sound hit("assets/hit.wav", Quartz::WAV);
+
+    // Build signal chain: master -> clipper -> filter -> sub-bus -> sources
+    Quartz::Mixer subBus;
+    Quartz::LR4 filter(quartz.getSampleRate(), quartz.getNumChannels());
+    filter.setFreq(15000.f);
+    Quartz::RectifierHalf clipper(quartz.getSampleRate(), quartz.getNumChannels());
+
+    quartz.master().addInput(&clipper);
+    clipper.setInput(&filter);
+    filter.setInput(&subBus);
+    subBus.addInput(&music);
+    subBus.addInput(&hit);
+
+    music.play();
+
+    while (true) {
+        char c = getchar();
+        if (c == 'q') break;
+        if (c == 's') hit.playStop();
+        if (c == 'm') music.playPause();
+        if (c == '+') music.setPlaybackSpeed(music.getPlaybackSpeed() + 0.1f);
+        if (c == '-') music.setPlaybackSpeed(music.getPlaybackSpeed() - 0.1f);
     }
-
-    void process(float* buffer, int frames, int channels) override {
-        for (int i = 0; i < frames * channels; ++i)
-            buffer[i] *= amount;
-    }
-};
+}
 ```
 
 ---
 
-## API Reference
+## Project Structure
 
-### `Quartz`
-
-| Method | Description |
-|---|---|
-| `bool init(sampleRate, numChannels)` | Open the default playback device and start the audio thread |
-| `Mixer& master()` | Returns a reference to the master bus mixer |
-
-### `Mixer : AudioNode`
-
-| Method | Description |
-|---|---|
-| `addInput(node, gain)` | Connect a node to this mixer with an optional per-input gain (default `1.0`) |
-| `setGain(g)` | Set the master output gain of this mixer |
-
-### `Sound : AudioNode`
-
-Decodes an entire `.ogg` file into memory. Best for short clips.
-
-| Method | Description |
-|---|---|
-| `bool load(filepath)` | Decode and load an `.ogg` file |
-| `loop` | Set to `true` to loop playback (public field) |
-
-### `Music : AudioNode`
-
-Streams an `.ogg` file from disk. Best for long tracks.
-
-| Method | Description |
-|---|---|
-| `bool load(filepath)` | Open an `.ogg` file for streaming |
-| `loop` | Set to `true` to loop when the stream ends (default `true`, public field) |
-
-### `InsertEffect : AudioNode` (base class)
-
-| Method | Description |
-|---|---|
-| `setInput(node)` | Set the upstream node whose output this effect processes |
-| `process(buffer, frames, channels)` | Override in subclasses to implement the effect |
-
-### `HardClip : InsertEffect`
-
-| Field | Description |
-|---|---|
-| `threshold` | Clips samples to `[-threshold, +threshold]` (default `1.0`) |
-
----
-
-## Notes
-
-- All nodes output **interleaved float** samples in the range `[-1.0, 1.0]`.
-- `getSamples()` is called from miniaudio's **audio thread**. Node graph mutations (adding/removing inputs, loading files) from the main thread are not thread-safe — synchronize access if you need to modify the graph at runtime.
-- `Sound` and `Music` start playing as soon as they are added to a mixer. There is no explicit `play()` call; control playback by adding/removing nodes from the graph.
-- `Music` loops by default (`loop = true`). Set it to `false` before loading if you want one-shot streaming playback.
-- Nodes are **not** owned by the mixer — you are responsible for their lifetime. Do not delete a node while it is still connected.
+```
+quartz/
+├── quartz.h              # Main entry point — include this
+├── include/
+│   ├── AudioNode.h       # Base class for all graph nodes
+│   ├── AudioNodeCollection.h  # Includes all nodes/effects
+│   ├── Mixer.h           # Multi-input mixer node
+│   ├── Sound.h           # Buffered audio source
+│   ├── Music.h           # Streamed audio source
+│   ├── InsertEffect.h    # Base class for insert effects
+│   ├── Biquad.h          # RBJ biquad and LR4 filters
+│   └── Distortion.h      # Waveshaping/distortion effects
+├── vendor/
+│   ├── miniaudio.h       # Audio device I/O
+│   ├── dr_wav.h          # WAV decoding
+│   ├── dr_mp3.h          # MP3 decoding
+│   ├── dr_flac.h         # FLAC decoding
+│   ├── stb_vorbis.c      # OGG/Vorbis decoding
+│   └── base-layer/       # Logging and utilities (submodule)
+├── testing/
+│   └── main.cpp          # Interactive test app
+└── CMakeLists.txt
+```
 
 ---
 
 ## License
 
-MIT — see `LICENSE` for details.
+See [LICENSE](LICENSE) for details.

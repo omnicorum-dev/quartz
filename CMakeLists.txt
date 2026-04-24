@@ -17,5 +17,6 @@ add_library(Quartz INTERFACE)
 target_include_directories(Quartz INTERFACE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 target_link_libraries(Quartz INTERFACE BaseLayer)
