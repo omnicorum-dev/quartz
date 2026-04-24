@@ -1,7 +1,9 @@
 20260415190132
 Biquad filter
 10
-open
+closed
 feature,insert,filter
 
+
 port the biquad class and filters to work for this
+
