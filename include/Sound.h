@@ -194,7 +194,11 @@ namespace Quartz {
 
                 if (srcFrame * channels >= srcTotal) {
                     if (loop) { playhead = 0.0; srcFrame = 0; }
-                    else { playing = false; break; }
+                    else {
+                        playing = false;
+                        playhead = 0.0; srcFrame = 0;
+                        break;
+                    }
                 }
 
                 for (int ch = 0; ch < numChannels; ++ch) {
